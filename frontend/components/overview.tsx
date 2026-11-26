@@ -1,33 +1,131 @@
 'use client';
+
 import Link from 'next/link';
-import { useMemo } from 'react';
-import { Activity, ArrowUpRight, Braces, Clock3, Code2, Database, FolderGit2, RefreshCw, Sparkles } from 'lucide-react';
-import { Repository, RepoFile, fmtDate } from '@/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, Braces, Clock3, Code2, Database, FolderGit2, GitBranch, GitFork, Network, RefreshCw, Sparkles } from 'lucide-react';
+import { api, Repository, RepoFile, fmtDate } from '@/lib/api';
 import RepoConnect from '@/components/repo-connect';
 
+type GraphPayload = {
+  nodes: { id: string; path: string; language: string; size: number }[];
+  edges: { id: string; source: string; target: string; import: string; line: number; resolved: boolean }[];
+};
+type MapNode = GraphPayload['nodes'][number] & { x: number; y: number };
+
 export default function Overview({ repositories, active, files, languages, onSelect, onAdded, onRefresh }: { repositories: Repository[]; active: Repository | null; files: RepoFile[]; languages: [string, number][]; onSelect: (id: string) => void; onAdded: () => Promise<void>; onRefresh: () => Promise<void> }) {
+  const [graph, setGraph] = useState<GraphPayload | null>(null);
+  const [graphError, setGraphError] = useState('');
+  const [selectedNodeId, setSelectedNodeId] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    setGraph(null); setSelectedNodeId(''); setGraphError('');
+    if (!active || active.status !== 'ready') return () => { cancelled = true; };
+    api<GraphPayload>(`/repositories/${active.id}/graph`).then((payload) => { if (!cancelled) setGraph(payload); }).catch((error) => { if (!cancelled) setGraphError(error instanceof Error ? error.message : 'Could not load the source map.'); });
+    return () => { cancelled = true; };
+  }, [active?.id, active?.status]);
+
+  const mapNodes: MapNode[] = useMemo(() => {
+    const sourceNodes = graph?.nodes || [];
+    const resolvedEdges = (graph?.edges || []).filter((edge) => edge.resolved);
+    const degree = new Map(sourceNodes.map((node) => [node.id, 0]));
+    resolvedEdges.forEach((edge) => {
+      if (degree.has(edge.source)) degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+      if (degree.has(edge.target)) degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+    });
+    const nodesById = new Map(sourceNodes.map((node) => [node.id, node]));
+    const remaining = new Set(sourceNodes.map((node) => node.id));
+    const selected: typeof sourceNodes = [];
+    while (selected.length < 9 && remaining.size) {
+      const selectedIds = new Set(selected.map((node) => node.id));
+      const candidates = [...remaining].map((id) => {
+        const node = nodesById.get(id)!;
+        const linksToSelection = resolvedEdges.filter((edge) =>
+          edge.source === id && selectedIds.has(edge.target) || edge.target === id && selectedIds.has(edge.source),
+        ).length;
+        return { node, linksToSelection, degree: degree.get(id) || 0 };
+      });
+      const connectedCandidates = selected.length ? candidates.filter((candidate) => candidate.linksToSelection > 0) : candidates;
+      const next = connectedCandidates.sort((a, b) => b.linksToSelection - a.linksToSelection || b.degree - a.degree || a.node.path.localeCompare(b.node.path))[0];
+      if (!next) break;
+      selected.push(next.node);
+      remaining.delete(next.node.id);
+    }
+    const visibleNodes = resolvedEdges.length ? selected : sourceNodes.slice(0, 9);
+    return visibleNodes.map((node, index) => ({
+      ...node, x: 66 + (index % 3) * 242, y: 58 + Math.floor(index / 3) * 90,
+    }));
+  }, [graph]);
+  const visibleIds = useMemo(() => new Set(mapNodes.map((node) => node.id)), [mapNodes]);
+  const mapEdges = useMemo(() => (graph?.edges || []).filter((edge) => edge.resolved && visibleIds.has(edge.source) && visibleIds.has(edge.target)).slice(0, 18), [graph, visibleIds]);
+  const selectedNode = mapNodes.find((node) => node.id === selectedNodeId) || null;
   const totalFiles = repositories.reduce((sum, row) => sum + row.file_count, 0);
   const totalSymbols = repositories.reduce((sum, row) => sum + row.symbol_count, 0);
   const languageTotal = languages.reduce((sum, [, count]) => sum + count, 0) || 1;
-  const metricCards = [
-    { label: 'Connected repositories', value: repositories.length, note: 'Public GitHub projects', icon: FolderGit2 },
-    { label: 'Files analyzed', value: totalFiles, note: active ? `${active.file_count} in active repository` : 'No indexed files yet', icon: Code2 },
-    { label: 'Languages detected', value: languages.length, note: languages.map(([name]) => name).join(', ') || 'Waiting for analysis', icon: Braces },
-    { label: 'Symbols indexed', value: totalSymbols, note: 'Functions, methods and classes', icon: Database },
-  ];
-  const sortedLanguages = useMemo(() => languages.slice(0, 5), [languages]);
-  return <>
-    <div className="metrics">{metricCards.map(({ label, value, note, icon: Icon }) => <section className="card metric" key={label}><div className="metric-top"><span>{label}</span><span className="metric-icon"><Icon size={15} /></span></div><div className="metric-value">{value.toLocaleString()}</div><div className="metric-foot">{note}</div></section>)}</div>
-    <div className="grid-main">
-      <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
-        <section className="card card-pad"><div className="card-head"><div><div className="card-title">Connect a repository</div><div className="card-note">Start with a public GitHub URL. Ingestion progress appears in the repository list.</div></div><span className="badge">Read-only</span></div><RepoConnect onAdded={onAdded} /></section>
-        <section className="card card-pad"><div className="card-head"><div><div className="card-title">Connected repositories</div><div className="card-note">{repositories.length} indexed project{repositories.length === 1 ? '' : 's'}</div></div><Link className="btn ghost" href="/repositories">View all <ArrowUpRight size={13} /></Link></div>{repositories.length ? repositories.slice(0, 5).map((repo) => <button key={repo.id} className="repo-row" onClick={() => onSelect(repo.id)} style={{ width: '100%', textAlign: 'left', color: 'inherit', borderTop: 0, borderLeft: 0, borderRight: 0, background: 'transparent' }}><span className="repo-icon"><FolderGit2 size={16} /></span><span style={{ minWidth: 0 }}><span className="repo-name">{repo.github_full_name}</span><span className="repo-meta" style={{ display: 'block' }}>{repo.file_count} files · {repo.symbol_count} symbols · {repo.language || 'Language pending'}</span></span><span className={`badge ${repo.status === 'ready' ? 'success' : repo.status === 'error' ? 'error' : 'processing'}`}>{repo.status}</span></button>) : <div className="empty"><div className="empty-icon"><FolderGit2 size={19} /></div><div className="empty-title">Your repository workspace is empty</div><p className="empty-text">Connect a public repository above. RepoMind will index real files and show progress here.</p></div>}</section>
+  const sortedLanguages = useMemo(() => languages.slice(0, 4), [languages]);
+
+  return <div className="overview-experience">
+    <section className="hero-layout">
+      <div className="hero-copy">
+        <div className="hero-eyebrow"><span className="pulse-point" /> Repository intelligence / {active?.status === 'ready' ? 'index live' : active?.status || 'ready to connect'}</div>
+        <h1 className="hero-headline">Your codebase.<br /><span>Understood.</span></h1>
+        <p className="hero-description">An engineering workspace that maps, explains and traces the systems behind your software—grounded in the files you actually ship.</p>
+        <div className="hero-actions">
+          {active ? <><Link className="btn primary" href="/explorer">Explore source <ArrowRight size={14} /></Link><Link className="btn hero-secondary" href="/assistant">Ask the codebase <Sparkles size={14} /></Link></> : <Link className="btn primary" href="/repositories">Explore a repository <ArrowRight size={14} /></Link>}
+          <a className="hero-text-link" href="#method">See how it works <ArrowDownRight size={13} /></a>
+        </div>
+        {active ? <div className="active-repo-line"><span className="mono-label">ACTIVE REPOSITORY</span><span className="active-repo-name"><FolderGit2 size={14} />{active.github_full_name}</span><span className="active-repo-detail">{active.default_branch} branch <span>·</span> {active.language || 'languages detected'}</span></div> : <div className="hero-connect"><div className="mono-label">START WITH A PUBLIC REPOSITORY</div><RepoConnect onAdded={onAdded} /></div>}
       </div>
-      <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
-        <section className="card card-pad"><div className="card-head"><div><div className="card-title">Language distribution</div><div className="card-note">Detected in the active repository</div></div><Braces size={15} color="#899aff" /></div>{sortedLanguages.length ? <div className="lang-bars">{sortedLanguages.map(([name, count]) => <div className="lang-line" key={name}><span>{name}</span><span className="bar"><i style={{ width: `${Math.max(6, count / languageTotal * 100)}%` }} /></span><span style={{ textAlign: 'right' }}>{count}</span></div>)}</div> : <div className="card-note">No language data yet. Connect a repository to begin.</div>}</section>
-        <section className="card card-pad"><div className="card-head"><div><div className="card-title">Analysis status</div><div className="card-note">Latest activity for the active repository</div></div><button className="btn ghost" onClick={() => void onRefresh()} aria-label="Refresh analysis status"><RefreshCw size={13} /></button></div>{active ? <div className="activity"><div className="activity-row"><span className="activity-mark" style={{ background: active.status === 'error' ? 'var(--red)' : active.status === 'ready' ? 'var(--green)' : 'var(--blue)' }} /><span><strong style={{ color: '#d8deed', fontWeight: 550 }}>{active.status === 'ready' ? 'Analysis complete' : active.status === 'error' ? 'Analysis needs attention' : 'Repository analysis queued'}</strong><span className="activity-time"><Clock3 size={10} style={{ verticalAlign: '-1px', marginRight: 4 }} />{fmtDate(active.last_analyzed_at)}</span>{active.status === 'error' && <span className="activity-time">Check the repository URL, GitHub availability, or API status.</span>}</span></div><div className="activity-row"><span className="activity-mark" /><span>Current index: {files.length} visible files<span className="activity-time">Parsed code is stored with exact source line ranges.</span></span></div></div> : <div className="empty" style={{ padding: '16px' }}><Activity size={17} /><p className="card-note">No analysis activity yet.</p></div>}</section>
-        <section className="card card-pad"><div className="card-head"><div><div className="card-title">Grounded answers</div><div className="card-note">AI is only enabled when a provider is configured.</div></div><Sparkles size={15} color="#b6a0ff" /></div><p className="card-note" style={{ lineHeight: 1.7 }}>Without provider credentials, RepoMind labels demo mode and returns retrieved source evidence only. It does not invent code explanations.</p><Link className="btn" href="/settings">Provider settings <ArrowUpRight size={13} /></Link></section>
+
+      <section className="live-map" aria-label="Live repository dependency map">
+        <div className="map-topline"><span><span className="map-live-dot" />{active?.status === 'ready' ? 'LIVE SOURCE MAP' : 'REPOSITORY MAP'}</span><span className="mono-label">{active ? active.github_full_name : 'AWAITING SOURCE'}</span></div>
+        {mapNodes.length ? <div className="map-canvas">
+          <svg className="map-wires" viewBox="0 0 630 260" preserveAspectRatio="none" aria-label={`${mapEdges.length} resolved relationships shown`}>
+            <defs><marker id="arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#607dff" /></marker></defs>
+            {mapEdges.map((edge) => {
+              const source = mapNodes.find((node) => node.id === edge.source);
+              const target = mapNodes.find((node) => node.id === edge.target);
+              if (!source || !target) return null;
+              const sx = source.x, sy = source.y, tx = target.x, ty = target.y;
+              return <path key={edge.id} className="wire-line" d={`M ${sx} ${sy} C ${(sx + tx) / 2} ${sy}, ${(sx + tx) / 2} ${ty}, ${tx} ${ty}`} markerEnd="url(#arrowhead)" />;
+            })}
+          </svg>
+          {mapNodes.map((node, index) => <button key={node.id} className={`map-node ${selectedNodeId === node.id ? 'selected' : ''}`} style={{ left: `${node.x / 6.3}%`, top: `${node.y / 2.6}%`, animationDelay: `${index * 65}ms` }} onClick={() => setSelectedNodeId(node.id)} aria-label={`Inspect ${node.path}`} title={`${node.path} · ${node.language}`}>
+            <span className="map-node-orbit"><span className="map-node-core" /></span><span className="map-node-name">{node.path.split('/').pop()}</span><span className="map-node-path">{node.path.split('/').slice(0, -1).join('/') || '/'}</span>
+          </button>)}
+          <div className="map-annotation annotation-a">IMPORT EDGE <span>{mapEdges.length.toString().padStart(2, '0')}</span></div>
+          <div className="map-annotation annotation-b">TREE-SITTER / {active?.language || 'SOURCE'}</div>
+        </div> : <div className="map-empty"><div className="empty-map-glyph"><Network size={24} strokeWidth={1.2} /></div><div className="map-empty-title">{active?.status === 'ready' ? 'No resolved relationships yet' : 'Structure forms from source'}</div><p>{graphError || (active?.status === 'ready' ? 'This index contains no confirmed local import edges.' : 'Connect a repository to see its actual files and imports unfold here.')}</p></div>}
+        <div className="map-footer"><div className="map-counts"><span><i className="count-square" />{graph?.nodes.length || 0} FILES MAPPED</span><span><i className="count-wire" />{graph?.edges.filter((edge) => edge.resolved).length || 0} RESOLVED IMPORTS</span></div>{selectedNode ? <span className="map-selection" title={selectedNode.path}>SELECTED / {selectedNode.path.split('/').pop()}</span> : <span className="map-selection">CLICK A NODE TO INSPECT</span>}</div>
+      </section>
+    </section>
+
+    <section className="signal-strip" aria-label="Repository index totals">
+      <div className="signal-caption"><span className="mono-label">THE INDEX</span><span className="signal-caption-text">Live metrics from connected source</span></div>
+      <div className="signal-stat"><span className="signal-number">{totalFiles.toLocaleString()}</span><span className="signal-label">FILES INDEXED</span></div>
+      <div className="signal-stat"><span className="signal-number">{totalSymbols.toLocaleString()}</span><span className="signal-label">FUNCTIONS & CLASSES</span></div>
+      <div className="signal-stat"><span className="signal-number">{repositories.length.toString().padStart(2, '0')}</span><span className="signal-label">CONNECTED REPOS</span></div>
+      <div className="signal-last"><Activity size={13} /><span>{active ? active.status === 'ready' ? `Last indexed ${fmtDate(active.last_analyzed_at)}` : `Analysis ${active.status}` : 'No analysis activity yet'}</span><button className="icon-refresh" onClick={() => void onRefresh()} aria-label="Refresh repository status" title="Refresh"><RefreshCw size={13} /></button></div>
+    </section>
+
+    <section className="overview-lower" id="method">
+      <div className="language-column">
+        <div className="section-overline"><span className="mono-label">01 — LANGUAGE PROFILE</span><span className="section-live">{active ? active.github_full_name : 'WAITING FOR REPOSITORY'}</span></div>
+        <h2 className="section-title">Built from<br /><em>what is there.</em></h2>
+        {sortedLanguages.length ? <div className="language-ledger">{sortedLanguages.map(([name, count], index) => <div className="language-row" key={name}><span className="language-index">0{index + 1}</span><span className="language-name">{name}</span><span className="language-bar"><i style={{ width: `${Math.max(5, count / languageTotal * 100)}%` }} /></span><span className="language-count">{count}</span></div>)}</div> : <div className="language-empty">Connect a public GitHub repository. Supported source languages appear here after ingestion.</div>}
+        {active && <div className="analysis-note"><Clock3 size={13} /><span>{active.status === 'ready' ? `${files.length} indexed paths in the active workspace.` : `Current index state: ${active.status}.`}</span></div>}
       </div>
-    </div>
-  </>;
+      <div className="journey-column">
+        <div className="section-overline"><span className="mono-label">02 — FROM SOURCE TO SIGNAL</span><span className="section-live">FOUR WAYS IN</span></div>
+        <h2 className="section-title">Follow the<br /><em>engineering thread.</em></h2>
+        <div className="journey-list">
+          <Link href="/repositories" className="journey-row"><span className="journey-step">01</span><span className="journey-icon"><FolderGit2 size={16} /></span><span className="journey-copy"><strong>Connect</strong><small>Index a public codebase</small></span><ArrowUpRight size={15} className="journey-arrow" /></Link>
+          <Link href="/graph" className="journey-row"><span className="journey-step">02</span><span className="journey-icon"><GitBranch size={16} /></span><span className="journey-copy"><strong>Map</strong><small>Follow imports through the system</small></span><ArrowUpRight size={15} className="journey-arrow" /></Link>
+          <Link href="/assistant" className="journey-row"><span className="journey-step">03</span><span className="journey-icon"><Braces size={16} /></span><span className="journey-copy"><strong>Ask</strong><small>Get answers with source evidence</small></span><ArrowUpRight size={15} className="journey-arrow" /></Link>
+          <Link href="/impact" className="journey-row"><span className="journey-step">04</span><span className="journey-icon"><GitFork size={16} /></span><span className="journey-copy"><strong>Trace</strong><small>See which files a change can reach</small></span><ArrowUpRight size={15} className="journey-arrow" /></Link>
+        </div>
+      </div>
+    </section>
+
+    {repositories.length > 1 && <section className="repository-index"><div className="section-overline"><span className="mono-label">03 — YOUR REPOSITORIES</span><Link href="/repositories">Manage all <ArrowRight size={13} /></Link></div><div className="repository-index-list">{repositories.map((repo) => <button key={repo.id} onClick={() => onSelect(repo.id)} className={`repository-index-row ${active?.id === repo.id ? 'is-active' : ''}`}><span className="repo-index-glyph"><GitBranch size={15} /></span><span className="repo-index-name">{repo.github_full_name}</span><span className="repo-index-meta">{repo.file_count} files / {repo.symbol_count} symbols</span><span className={`badge ${repo.status === 'ready' ? 'success' : repo.status === 'error' ? 'error' : 'processing'}`}>{repo.status}</span><ArrowUpRight size={14} /></button>)}</div></section>}
+  </div>;
 }
