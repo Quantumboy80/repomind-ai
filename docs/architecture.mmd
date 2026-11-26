@@ -1,0 +1,26 @@
+flowchart LR
+  Dev[Developer]
+  subgraph App[RepoMind AI]
+    Web[Next.js / React / TypeScript\nDashboard · Explorer · Assistant · Graph]
+    API[FastAPI / Pydantic REST API]
+    GH[GitHub ingestion service\nURL validation · bounds]
+    Parse[Tree-sitter parser\nSymbols · imports · chunks]
+    RAG[Hybrid retrieval\nLexical + pgvector]
+    LLM[Provider abstraction\nChat + embeddings]
+    Graph[Dependency + impact analysis\nStatic heuristic]
+    DB[(PostgreSQL + pgvector\nSQLAlchemy · Alembic)]
+  end
+  GitHub[(GitHub public API / raw source)]
+  Provider[(OpenAI-compatible LLM API)]
+  Dev --> Web
+  Web -->|same-origin API proxy| API
+  API --> GH
+  GH --> GitHub
+  GH --> Parse
+  Parse --> DB
+  API --> RAG
+  RAG --> DB
+  RAG --> LLM
+  LLM --> Provider
+  API --> Graph
+  Graph --> DB

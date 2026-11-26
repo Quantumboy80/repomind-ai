@@ -1,0 +1,12 @@
+{
+  "name": "repomind-ai",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "dev:web": "pnpm --dir frontend dev",
+    "build": "pnpm --dir frontend build",
+    "typecheck": "pnpm --dir frontend typecheck",
+    "test:api": "cd backend && python -m pytest -q"
+  }
+}

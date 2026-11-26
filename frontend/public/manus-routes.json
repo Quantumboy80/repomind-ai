@@ -1,0 +1,1 @@
+{"routes":[{"path":"/","title":"Overview"},{"path":"/repositories","title":"Repositories"},{"path":"/explorer","title":"Code Explorer"},{"path":"/assistant","title":"AI Assistant"},{"path":"/graph","title":"Dependency Graph"},{"path":"/impact","title":"Impact Analysis"},{"path":"/settings","title":"Settings"}]}
