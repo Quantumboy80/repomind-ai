@@ -18,11 +18,11 @@ docker compose up --build
 
 Open `http://localhost:3000`. FastAPI's OpenAPI page is at `http://localhost:8000/docs`; health check: `http://localhost:8000/health`. The first API start enables the `vector` extension and creates tables; the Alembic initial migration is in `backend/alembic/versions/0001_initial_schema.py` and can be applied with `docker compose exec api alembic -c alembic.ini upgrade head`.
 
-The Compose example uses local-development database credentials; change them before exposing the services beyond a trusted machine. Durable PostgreSQL data is stored in the `pgdata` volume. No Redis instance is included because MVP indexing is synchronous/background-task based and does not require a separate cache.
+The Compose example uses local-development-only database credentials. Never use the `.env.example` values in production; supply unique production credentials through a secret manager and keep `DATABASE_URL` aligned with the PostgreSQL settings. Change local credentials before exposing services beyond a trusted machine. Durable PostgreSQL data is stored in the `pgdata` volume. No Redis instance is included because MVP indexing is synchronous/background-task based and does not require a separate cache.
 
 ## Run without Docker
 
-The frontend and API can run locally against SQLite for a low-friction UI/parse demo. This does **not** provide PostgreSQL/pgvector persistence. To use the production-intended database, start PostgreSQL with pgvector and set `DATABASE_URL` as in `.env.example`.
+The frontend and API can run locally against SQLite for a low-friction UI/parse demo. This does **not** provide PostgreSQL/pgvector persistence. To use the production-intended database, start PostgreSQL with pgvector and set `DATABASE_URL` as in `.env.example`, using `localhost` as the host when the API runs outside Compose.
 
 ```bash
 python3 -m venv .venv

@@ -1,16 +1,17 @@
 services:
   db:
     image: pgvector/pgvector:pg16
+    # Credentials are required from the root .env; never use local sample values in production.
     environment:
-      POSTGRES_DB: repomind
-      POSTGRES_USER: repomind
-      POSTGRES_PASSWORD: repomind
+      POSTGRES_DB: "${POSTGRES_DB:?Set POSTGRES_DB in the root .env file}"
+      POSTGRES_USER: "${POSTGRES_USER:?Set POSTGRES_USER in the root .env file}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}"
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U repomind -d repomind"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 4s
       retries: 20
@@ -18,7 +19,7 @@ services:
     build:
       context: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://repomind:repomind@db:5432/repomind
+      DATABASE_URL: "${DATABASE_URL:?Set DATABASE_URL in the root .env file}"
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-gpt-4o-mini}
