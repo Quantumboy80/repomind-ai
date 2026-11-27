@@ -62,6 +62,21 @@ export default function Overview({ repositories, active, files, languages, onSel
   const totalSymbols = repositories.reduce((sum, row) => sum + row.symbol_count, 0);
   const languageTotal = languages.reduce((sum, [, count]) => sum + count, 0) || 1;
   const sortedLanguages = useMemo(() => languages.slice(0, 4), [languages]);
+  const [activeConcept, setActiveConcept] = useState('REPOSITORY');
+  const resolvedImportCount = graph?.edges.filter((edge) => edge.resolved).length || 0;
+  const concepts = [
+    { word: 'FUNCTION', value: active ? `${active.symbol_count} SYMBOLS` : 'SOURCE', href: '/explorer', cursor: 'INSPECT' },
+    { word: 'CLASS', value: 'STATIC PARSE', href: '/explorer', cursor: 'INSPECT' },
+    { word: 'MODULE', value: active ? `${files.length} FILES` : 'FILE', href: '/explorer', cursor: 'EXPLORE' },
+    { word: 'IMPORT', value: active ? `${resolvedImportCount} RESOLVED` : 'RELATION', href: '/graph', cursor: 'TRACE' },
+    { word: 'DEPENDENCY', value: 'SOURCE EDGE', href: '/graph', cursor: 'TRACE' },
+    { word: 'REPOSITORY', value: active?.github_full_name || 'CONNECT SOURCE', href: '/repositories', cursor: 'EXPLORE' },
+    { word: 'SYMBOL', value: active ? `${active.symbol_count} INDEXED` : 'FUNCTION / CLASS', href: '/explorer', cursor: 'INSPECT' },
+    { word: 'EXECUTION', value: 'NEVER RUN', href: '/settings', cursor: 'EXPLORE' },
+    { word: 'ANALYSIS', value: active?.status?.toUpperCase() || 'AWAITING SOURCE', href: '/assistant', cursor: 'ASK AI' },
+    { word: 'TRACE', value: active ? `${files.length} PATHS` : 'CHANGE PATH', href: '/impact', cursor: 'TRACE' },
+  ];
+  const activeConceptIndex = Math.max(0, concepts.findIndex((item) => item.word === activeConcept));
 
   return <div className="overview-experience">
     <section className="hero-layout">
@@ -70,7 +85,7 @@ export default function Overview({ repositories, active, files, languages, onSel
         <h1 className="hero-headline">Your codebase.<br /><span>Understood.</span></h1>
         <p className="hero-description">An engineering workspace that maps, explains and traces the systems behind your software—grounded in the files you actually ship.</p>
         <div className="hero-actions">
-          {active ? <><Link className="btn primary" href="/explorer">Explore source <ArrowRight size={14} /></Link><Link className="btn hero-secondary" href="/assistant">Ask the codebase <Sparkles size={14} /></Link></> : <Link className="btn primary" href="/repositories">Explore a repository <ArrowRight size={14} /></Link>}
+          {active ? <><Link data-cursor="EXPLORE" className="btn primary text-roll" href="/explorer">Explore source <ArrowRight size={14} /></Link><Link data-cursor="ASK AI" className="btn hero-secondary text-roll" href="/assistant">Ask the codebase <Sparkles size={14} /></Link></> : <Link data-cursor="EXPLORE" className="btn primary text-roll" href="/repositories">Explore a repository <ArrowRight size={14} /></Link>}
           <a className="hero-text-link" href="#method">See how it works <ArrowDownRight size={13} /></a>
         </div>
         {active ? <div className="active-repo-line"><span className="mono-label">ACTIVE REPOSITORY</span><span className="active-repo-name"><FolderGit2 size={14} />{active.github_full_name}</span><span className="active-repo-detail">{active.default_branch} branch <span>·</span> {active.language || 'languages detected'}</span></div> : <div className="hero-connect"><div className="mono-label">START WITH A PUBLIC REPOSITORY</div><RepoConnect onAdded={onAdded} /></div>}
@@ -89,7 +104,7 @@ export default function Overview({ repositories, active, files, languages, onSel
               return <path key={edge.id} className="wire-line" d={`M ${sx} ${sy} C ${(sx + tx) / 2} ${sy}, ${(sx + tx) / 2} ${ty}, ${tx} ${ty}`} markerEnd="url(#arrowhead)" />;
             })}
           </svg>
-          {mapNodes.map((node, index) => <button key={node.id} className={`map-node ${selectedNodeId === node.id ? 'selected' : ''}`} style={{ left: `${node.x / 6.3}%`, top: `${node.y / 2.6}%`, animationDelay: `${index * 65}ms` }} onClick={() => setSelectedNodeId(node.id)} aria-label={`Inspect ${node.path}`} title={`${node.path} · ${node.language}`}>
+          {mapNodes.map((node, index) => <button key={node.id} data-cursor="TRACE" className={`map-node ${selectedNodeId === node.id ? 'selected' : ''}`} style={{ left: `${node.x / 6.3}%`, top: `${node.y / 2.6}%`, animationDelay: `${index * 65}ms` }} onClick={() => setSelectedNodeId(node.id)} aria-label={`Inspect ${node.path}`} title={`${node.path} · ${node.language}`}>
             <span className="map-node-orbit"><span className="map-node-core" /></span><span className="map-node-name">{node.path.split('/').pop()}</span><span className="map-node-path">{node.path.split('/').slice(0, -1).join('/') || '/'}</span>
           </button>)}
           <div className="map-annotation annotation-a">IMPORT EDGE <span>{mapEdges.length.toString().padStart(2, '0')}</span></div>
@@ -105,6 +120,13 @@ export default function Overview({ repositories, active, files, languages, onSel
       <div className="signal-stat"><span className="signal-number">{totalSymbols.toLocaleString()}</span><span className="signal-label">FUNCTIONS & CLASSES</span></div>
       <div className="signal-stat"><span className="signal-number">{repositories.length.toString().padStart(2, '0')}</span><span className="signal-label">CONNECTED REPOS</span></div>
       <div className="signal-last"><Activity size={13} /><span>{active ? active.status === 'ready' ? `Last indexed ${fmtDate(active.last_analyzed_at)}` : `Analysis ${active.status}` : 'No analysis activity yet'}</span><button className="icon-refresh" onClick={() => void onRefresh()} aria-label="Refresh repository status" title="Refresh"><RefreshCw size={13} /></button></div>
+    </section>
+
+    <section className="concept-field" aria-label={`Engineering vocabulary${active ? ` for ${active.github_full_name}` : ''}`}>
+      <div className="concept-heading"><span className="mono-label">THE WORKING VOCABULARY</span><span className="concept-context">{active?.github_full_name || 'A codebase, read from source'}</span></div>
+      <div className="concept-grid">{concepts.map((concept, index) => <Link key={concept.word} href={concept.href} data-cursor={concept.cursor} className={`concept-tile text-roll ${activeConcept === concept.word ? 'is-selected selection-ink' : ''} ${Math.abs(activeConceptIndex - index) === 1 ? 'is-neighbor' : ''}`} onMouseEnter={() => setActiveConcept(concept.word)} onFocus={() => setActiveConcept(concept.word)}>
+        <span className="concept-index">{String(index + 1).padStart(2, '0')}</span><strong>{concept.word}</strong><small>{concept.value}</small>
+      </Link>)}</div>
     </section>
 
     <section className="overview-lower" id="method">

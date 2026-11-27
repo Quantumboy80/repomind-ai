@@ -11,7 +11,7 @@ import Explorer from '@/components/explorer';
 import Assistant from '@/components/assistant';
 import GraphView from '@/components/graph-view';
 import Impact from '@/components/impact';
-import SettingsView from '@/components/settings-view';
+import SettingsView, { type Appearance } from '@/components/settings-view';
 
 const navigation = [
   { label: 'Overview', short: 'Home', href: '/', icon: Home },
@@ -44,6 +44,8 @@ export default function AppShell() {
   const paletteTriggerRef = useRef<HTMLButtonElement>(null);
   const paletteDialogRef = useRef<HTMLElement>(null);
   const paletteInputRef = useRef<HTMLInputElement>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
+  const [appearance, setAppearance] = useState<Appearance>('obsidian-blue');
   const activeRepo = useMemo(() => repos.find((repo) => repo.id === activeId) || null, [repos, activeId]);
   const activeNav = navigation.find((item) => item.href === pathname) || navigation[0];
   const isOverview = pathname === '/';
@@ -61,6 +63,34 @@ export default function AppShell() {
   }
 
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 7000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('repomind-appearance');
+      if (saved === 'obsidian-blue' || saved === 'graphite-violet' || saved === 'midnight-neutral') setAppearance(saved);
+    } catch { /* Storage may be disabled; the default theme remains usable. */ }
+  }, []);
+  useEffect(() => {
+    document.documentElement.dataset.appearance = appearance;
+  }, [appearance]);
+  useEffect(() => {
+    const main = document.querySelector<HTMLElement>('.main');
+    const cursor = cursorRef.current;
+    if (!main || !cursor || window.matchMedia('(prefers-reduced-motion: reduce)').matches || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-cursor]') : null;
+      const label = target?.dataset.cursor;
+      if (!label) { cursor.dataset.visible = 'false'; return; }
+      cursor.textContent = label;
+      cursor.style.left = `${event.clientX}px`;
+      cursor.style.top = `${event.clientY}px`;
+      cursor.dataset.visible = 'true';
+    };
+    const onPointerLeave = () => { cursor.dataset.visible = 'false'; };
+    main.addEventListener('pointermove', onPointerMove, { passive: true });
+    main.addEventListener('pointerleave', onPointerLeave, { passive: true });
+    return () => { main.removeEventListener('pointermove', onPointerMove); main.removeEventListener('pointerleave', onPointerLeave); };
+  }, []);
   useEffect(() => {
     function onKeyboard(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setPaletteOpen((open) => !open); setPaletteQuery(''); }
@@ -112,7 +142,7 @@ export default function AppShell() {
         <span className="brand-lockup"><span className="brandname">repo<span>mind</span></span><span className="brand-sub">CODEBASE INTELLIGENCE</span></span>
       </Link>
       <nav className="workspace-nav" aria-label="Workspace navigation">
-        {navigation.map(({ label, short, href, icon: Icon }) => <Link key={href} href={href} title={label} className={`nav-link ${pathname === href ? 'active' : ''}`}><Icon size={14} /><span>{short}</span></Link>)}
+        {navigation.map(({ label, short, href, icon: Icon }) => <Link key={href} href={href} title={label} data-cursor={href === '/assistant' ? 'ASK AI' : href === '/graph' || href === '/impact' ? 'TRACE' : 'EXPLORE'} className={`nav-link text-roll ${pathname === href ? 'active selection-ink' : ''}`}><Icon size={14} /><span>{short}</span></Link>)}
       </nav>
       <div className="top-actions">
         <button ref={paletteTriggerRef} className="palette-trigger" onClick={() => { setPaletteOpen(true); setPaletteQuery(''); }} aria-label="Open command palette"><Search size={13} /><kbd>CTRL K</kbd></button>
@@ -120,13 +150,14 @@ export default function AppShell() {
         <span className={`status-pill ${apiError ? 'offline' : ''}`} title={apiError || (meta?.demo_mode ? 'Retrieved source only; no generated answer without a provider.' : 'Provider configured')}><span className="status-light" />{apiError ? 'Offline' : meta?.demo_mode ? 'Demo' : 'AI live'}</span>
       </div>
     </header>
-    {paletteOpen && <div className="palette-backdrop" onMouseDown={() => setPaletteOpen(false)}><section ref={paletteDialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><Search size={16} /><input ref={paletteInputRef} value={paletteQuery} onChange={(event) => setPaletteQuery(event.target.value)} placeholder="Go to a workspace or repository…" aria-label="Search commands" /><button onClick={() => setPaletteOpen(false)} aria-label="Close command palette"><X size={15} /></button></div><div className="palette-results"><div className="palette-group">WORKSPACE</div>{matchingRoutes.map(({ label, href, icon: Icon }) => <Link key={href} href={href} className="palette-option" onClick={() => setPaletteOpen(false)}><Icon size={15} /><span>{label}</span><ArrowRight size={13} /></Link>)}{matchingRepos.length > 0 && <><div className="palette-group">REPOSITORIES</div>{matchingRepos.map((repo) => <button key={repo.id} className="palette-option" onClick={() => { chooseRepo(repo.id); setPaletteOpen(false); }}><GitBranch size={15} /><span>{repo.github_full_name}</span><small>{repo.status}</small></button>)}</>}{matchingRoutes.length === 0 && matchingRepos.length === 0 && <p className="palette-empty">No workspace or repository matches “{paletteQuery}”.</p>}</div><div className="palette-hint"><span>Navigate the workspace</span><span><kbd>ESC</kbd> close</span></div></section></div>}
+    {paletteOpen && <div className="palette-backdrop" onMouseDown={() => setPaletteOpen(false)}><section ref={paletteDialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><div className="palette-search"><Search size={16} /><input ref={paletteInputRef} value={paletteQuery} onChange={(event) => setPaletteQuery(event.target.value)} placeholder="Go to a workspace or repository…" aria-label="Search commands" /><button onClick={() => setPaletteOpen(false)} aria-label="Close command palette"><X size={15} /></button></div><div className="palette-results"><div className="palette-group">WORKSPACE</div>{matchingRoutes.map(({ label, href, icon: Icon }) => <Link key={href} href={href} data-cursor={href === '/assistant' ? 'ASK AI' : href === '/graph' || href === '/impact' ? 'TRACE' : 'EXPLORE'} className="palette-option selection-ink" onClick={() => setPaletteOpen(false)}><Icon size={15} /><span>{label}</span><ArrowRight size={13} /></Link>)}{matchingRepos.length > 0 && <><div className="palette-group">REPOSITORIES</div>{matchingRepos.map((repo) => <button key={repo.id} data-cursor="EXPLORE" className="palette-option selection-ink" onClick={() => { chooseRepo(repo.id); setPaletteOpen(false); }}><GitBranch size={15} /><span>{repo.github_full_name}</span><small>{repo.status}</small></button>)}</>}{matchingRoutes.length === 0 && matchingRepos.length === 0 && <p className="palette-empty">No workspace or repository matches “{paletteQuery}”.</p>}</div><div className="palette-hint"><span>Navigate the workspace</span><span><kbd>ESC</kbd> close</span></div></section></div>}
     <main className="main">
       <div className="page">
         {!isOverview && <div className="page-heading"><div><div className="eyebrow">{String(navigation.findIndex((item) => item.href === pathname) + 1).padStart(2, '0')} / {activeNav.label}</div><h1>{titles[pathname]?.title || activeNav.label}</h1><p className="subtitle">{titles[pathname]?.sub}</p></div>{activeRepo && <span className={`badge ${activeRepo.status === 'ready' ? 'success' : activeRepo.status === 'error' ? 'error' : 'processing'}`}>{activeRepo.status === 'processing' ? 'Analysis running' : activeRepo.status}</span>}</div>}
         {apiError && <div className="error-box" role="status">{apiError} Repository operations need the FastAPI service.</div>}
-        {loading ? <div className="card empty"><div className="empty-icon"><Activity size={19} /></div><div className="empty-title">Opening your workspace</div><p className="empty-text">Loading live repository index and analysis status…</p></div> : isOverview ? <Overview repositories={repos} active={activeRepo} files={files} languages={counts} onSelect={chooseRepo} onAdded={onRepositoryAdded} onRefresh={refresh} /> : pathname === '/repositories' ? <Repositories repositories={repos} activeId={activeId} onSelect={chooseRepo} onAdded={onRepositoryAdded} onRefresh={refresh} /> : pathname === '/explorer' ? <Explorer repository={activeRepo} /> : pathname === '/assistant' ? <Assistant repository={activeRepo} meta={meta} /> : pathname === '/graph' ? <GraphView repository={activeRepo} /> : pathname === '/impact' ? <Impact repository={activeRepo} /> : <SettingsView meta={meta} />}
+        {loading ? <div className="card empty"><div className="empty-icon"><Activity size={19} /></div><div className="empty-title">Opening your workspace</div><p className="empty-text">Loading live repository index and analysis status…</p></div> : isOverview ? <Overview repositories={repos} active={activeRepo} files={files} languages={counts} onSelect={chooseRepo} onAdded={onRepositoryAdded} onRefresh={refresh} /> : pathname === '/repositories' ? <Repositories repositories={repos} activeId={activeId} onSelect={chooseRepo} onAdded={onRepositoryAdded} onRefresh={refresh} /> : pathname === '/explorer' ? <Explorer repository={activeRepo} /> : pathname === '/assistant' ? <Assistant repository={activeRepo} meta={meta} /> : pathname === '/graph' ? <GraphView repository={activeRepo} /> : pathname === '/impact' ? <Impact repository={activeRepo} /> : <SettingsView meta={meta} appearance={appearance} onAppearanceChange={(value) => { setAppearance(value); try { window.localStorage.setItem('repomind-appearance', value); } catch { /* Theme applies for this session even when storage is unavailable. */ } }} />}
       </div>
+      <div ref={cursorRef} className="context-cursor" aria-hidden="true" data-visible="false" />
     </main>
     <footer className="app-footer"><span>RepoMind <span className="footer-mark">/</span> Repository intelligence</span><span>{activeRepo?.github_full_name || 'Connect a repository to begin'} <span className="footer-mark">·</span> {activeRepo?.status || 'local workspace'}</span></footer>
   </div>;
